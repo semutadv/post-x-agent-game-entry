@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>NEON SERPENT</title>
+<style>
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: #05060f; color: #d7f9ff;
+    font-family: "Segoe UI", system-ui, sans-serif;
+    overflow: hidden; touch-action: none;
+    -webkit-user-select: none; user-select: none;
+  }
+  #wrap {
+    height: 100%; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 10px;
+  }
+  h1 {
+    margin: 0; font-size: clamp(20px, 5vw, 34px); letter-spacing: 6px;
+    color: #2bffe8; text-shadow: 0 0 12px #2bffe8, 0 0 34px #0e7d6e;
+    font-weight: 800;
+  }
+  #hud {
+    display: flex; gap: 34px; font-size: clamp(14px, 3.6vw, 20px);
+    letter-spacing: 2px; font-variant-numeric: tabular-nums;
+  }
+  #hud b { color: #ff2d78; text-shadow: 0 0 10px #ff2d78; }
+  #hud span { color: #8ef7ff; }
+  canvas {
+    width: min(92vw, 92vh, 480px); height: auto; aspect-ratio: 1 / 1;
+    background: #070818; border: 2px solid #173a4d; border-radius: 10px;
+    box-shadow: 0 0 24px rgba(43, 255, 232, .25), inset 0 0 24px rgba(20, 20, 60, .8);
+  }
+  #hint { font-size: 13px; color: #5f7fa6; letter-spacing: 1px; }
+</style>
+</head>
+<body>
+<div id="wrap">
+  <h1>NEON SERPENT</h1>
+  <div id="hud">
+    <div>SCORE <b id="score">0</b></div>
+    <div>BEST <span id="best">0</span></div>
+  </div>
+  <canvas id="game" width="480" height="480"></canvas>
+  <div id="hint">Arrow keys / WASD &middot; swipe on touch &middot; SPACE to restart</div>
+</div>
+
+<script>
+"use strict";
+// ---------- NEON SERPENT ----------
+// One-file snake: neon glow on a dark grid, speed climbs as you eat.
+
+const COLS = 24, ROWS = 24, CELL = 20;
+const START_MS = 150, MIN_MS = 60, STEP_MS = 6;
+
+const cv = document.getElementById("game");
+const ctx = cv.getContext("2d");
+const scoreEl = document.getElementById("score");
+const bestEl = document.getElementById("best");
+
+let snake, dir, dirQueue, orb, score, best, tickMs, alive, started, timer;
+best = Number(localStorage.getItem("neonSerpentBest") || 0);
+bestEl.textContent = best;
+
+function reset() {
+  snake = [{x:11,y:12},{x:10,y:12},{x:9,y:12},{x:8,y:12}];
+  dir = {x:1, y:0};
+  dirQueue = [];
+  score = 0;
+  tickMs = START_MS;
+  alive = true;
+  started = false;
+  placeOrb();
+  scoreEl.textContent = "0";
+  draw(0);
+}
+
+function placeOrb() {
+  const taken = new Set(snake.map(s => s.x + "," + s.y));
+  const free = [];
+  for (let y = 0; y < ROWS; y++)
+    for (let x = 0; x < COLS; x++)
+      if (!taken.has(x + "," + y)) free.push({x, y});
+  orb = free[Math.floor(Math.random() * free.length)];
+}
+
+function setDir(x, y) {
+  const last = dirQueue.length ? dirQueue[dirQueue.length - 1] : dir;
+  if (last.x === -x && last.y === -y) return;  // no reversing
+  if (last.x === x && last.y === y) return;    // no duplicates
+  if (dirQueue.length < 3) dirQueue.push({x, y});
+}
+
+function tick() {
+  if (dirQueue.length) dir = dirQueue.shift();
+  const head = {x: snake[0].x + dir.x, y: snake[0].y + dir.y};
+
+  const hitsWall = head.x < 0 || head.y < 0 || head.x >= COLS || head.y >= ROWS;
+  const eating = orb && head.x === orb.x && head.y === orb.y;
+  const body = eating ? snake : snake.slice(0, -1);
+  const hitsSelf = body.some(s => s.x === head.x && s.y === head.y);
+  if (hitsWall || hitsSelf) { gameOver(); return; }
+
+  snake.unshift(head);
+  if (eating) {
+    score += 10;
+    scoreEl.textContent = score;
+    tickMs = Math.max(MIN_MS, tickMs - STEP_MS);
+    placeOrb();
+  } else {
+    snake.pop();
+  }
+  draw(performance.now());
+  timer = setTimeout(tick, tickMs);
+}
+
+function gameOver() {
+  alive = false;
+  clearTimeout(timer);
+  if (score > best) {
+    best = score;
+    localStorage.setItem("neonSerpentBest", String(best));
+    bestEl.textContent = best;
+  }
+  draw(performance.now());
+  ctx.fillStyle = "rgba(3, 4, 12, 0.78)";
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.textAlign = "center";
+  ctx.fillStyle = "#ff2d78";
+  ctx.shadowColor = "#ff2d78"; ctx.shadowBlur = 22;
+  ctx.font = "800 44px 'Segoe UI', sans-serif";
+  ctx.fillText("GAME OVER", cv.width / 2, cv.height / 2 - 30);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#d7f9ff";
+  ctx.font = "600 22px 'Segoe UI', sans-serif";
+  ctx.fillText("Score " + score + "  ·  Best " + best, cv.width / 2, cv.height / 2 + 12);
+  ctx.fillStyle = "#8ef7ff";
+  ctx.font = "16px 'Segoe UI', sans-serif";
+  ctx.fillText("Press SPACE or tap to play again", cv.width / 2, cv.height / 2 + 48);
+}
+
+function lerpColor(a, b, t) {
+  const pa = [1, 3, 5].map(i => parseInt(a.substr(i, 2), 16));
+  const pb = [1, 3, 5].map(i => parseInt(b.substr(i, 2), 16));
+  return "rgb(" + pa.map((v, i) => Math.round(v + (pb[i] - v) * t)).join(",") + ")";
+}
+
+function draw(now) {
+  ctx.fillStyle = "#070818";
+  ctx.fillRect(0, 0, cv.width, cv.height);
+
+  // grid
+  ctx.strokeStyle = "rgba(120, 140, 255, 0.07)";
+  ctx.lineWidth = 1;
+  ctx.beginPath();
+  for (let x = 1; x < COLS; x++) { ctx.moveTo(x * CELL + .5, 0); ctx.lineTo(x * CELL + .5, cv.height); }
+  for (let y = 1; y < ROWS; y++) { ctx.moveTo(0, y * CELL + .5); ctx.lineTo(cv.width, y * CELL + .5); }
+  ctx.stroke();
+
+  // orb: a pulsing neon heart of the grid
+  if (orb) {
+    const pulse = 1 + 0.18 * Math.sin(now / 160);
+    const cx = orb.x * CELL + CELL / 2, cy = orb.y * CELL + CELL / 2;
+    ctx.fillStyle = "#ff2d78";
+    ctx.shadowColor = "#ff2d78"; ctx.shadowBlur = 18;
+    ctx.beginPath();
+    ctx.arc(cx, cy, (CELL / 2 - 3) * pulse, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#ffd7ea";
+    ctx.beginPath();
+    ctx.arc(cx, cy, 2.6, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // snake: head bright cyan, body fading to magenta, all aglow
+  for (let i = snake.length - 1; i >= 0; i--) {
+    const s = snake[i];
+    const t = snake.length <= 1 ? 0 : i / (snake.length - 1);
+    ctx.fillStyle = i === 0 ? "#2bffe8" : lerpColor("#2bffe8", "#b02dff", t);
+    ctx.shadowColor = i === 0 ? "#2bffe8" : "#7a2dff";
+    ctx.shadowBlur = i === 0 ? 20 : 12;
+    const pad = i === 0 ? 1.5 : 2.5;
+    ctx.beginPath();
+    ctx.roundRect(s.x * CELL + pad, s.y * CELL + pad, CELL - pad * 2, CELL - pad * 2, 5);
+    ctx.fill();
+  }
+  ctx.shadowBlur = 0;
+
+  // eyes on the head, looking along the direction of travel
+  const h = snake[0];
+  const ex = h.x * CELL + CELL / 2, ey = h.y * CELL + CELL / 2;
+  ctx.fillStyle = "#04222b";
+  for (const side of [-1, 1]) {
+    const px = ex + dir.x * 3 + (dir.y !== 0 ? side * 4.5 : 0);
+    const py = ey + dir.y * 3 + (dir.x !== 0 ? side * 4.5 : 0);
+    ctx.beginPath(); ctx.arc(px, py, 2.1, 0, Math.PI * 2); ctx.fill();
+  }
+
+  if (!started && alive) {
+    ctx.fillStyle = "rgba(3, 4, 12, 0.55)";
+    ctx.fillRect(0, 0, cv.width, cv.height);
+    ctx.textAlign = "center";
+    ctx.fillStyle = "#2bffe8";
+    ctx.shadowColor = "#2bffe8"; ctx.shadowBlur = 16;
+    ctx.font = "800 30px 'Segoe UI', sans-serif";
+    ctx.fillText("NEON SERPENT", cv.width / 2, cv.height / 2 - 8);
+    ctx.shadowBlur = 0;
+    ctx.fillStyle = "#d7f9ff";
+    ctx.font = "16px 'Segoe UI', sans-serif";
+    ctx.fillText("Press an arrow key or swipe to start", cv.width / 2, cv.height / 2 + 26);
+  }
+}
+
+// ---------- input ----------
+const KEYS = {
+  ArrowUp: [0, -1], ArrowDown: [0, 1], ArrowLeft: [-1, 0], ArrowRight: [1, 0],
+  w: [0, -1], s: [0, 1], a: [-1, 0], d: [1, 0],
+  W: [0, -1], S: [0, 1], A: [-1, 0], D: [1, 0]
+};
+
+document.addEventListener("keydown", (e) => {
+  if (e.key === " " ) {
+    e.preventDefault();
+    if (!alive) { reset(); start(); }
+    return;
+  }
+  const k = KEYS[e.key];
+  if (!k) return;
+  e.preventDefault();
+  if (!alive) return;
+  setDir(k[0], k[1]);
+  start();
+});
+
+let touchStart = null;
+cv.addEventListener("touchstart", (e) => {
+  touchStart = {x: e.touches[0].clientX, y: e.touches[0].clientY};
+}, {passive: true});
+cv.addEventListener("touchend", (e) => {
+  if (!alive) { reset(); start(); return; }
+  if (!touchStart) return;
+  const dx = e.changedTouches[0].clientX - touchStart.x;
+  const dy = e.changedTouches[0].clientY - touchStart.y;
+  touchStart = null;
+  if (Math.max(Math.abs(dx), Math.abs(dy)) < 24) return;  // a tap, not a swipe
+  if (Math.abs(dx) > Math.abs(dy)) setDir(Math.sign(dx), 0);
+  else setDir(0, Math.sign(dy));
+  start();
+}, {passive: true});
+
+function start() {
+  if (started || !alive) return;
+  started = true;
+  timer = setTimeout(tick, tickMs);
+}
+
+reset();
+</script>
+</body>
+</html>
